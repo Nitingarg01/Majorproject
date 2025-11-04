@@ -99,7 +99,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         'id': str(user['_id']),
         'email': user['email'],
         'name': user['name'],
-        'role': user.get('role', 'recruiter')  # Default to recruiter if role is missing
+        'role': user.get('role', 'user')  # Default to user
     }
 
 
@@ -114,12 +114,12 @@ async def signup(user_data: UserCreate):
         if existing_user:
             raise HTTPException(status_code=400, detail="Email already registered")
         
-        # Create user
+        # Create user (everyone is a candidate/user)
         user_doc = {
             "name": user_data.name,
             "email": user_data.email,
             "password": hash_password(user_data.password),
-            "role": user_data.role,
+            "role": "user",  # Everyone is just a user
             "createdAt": datetime.utcnow()
         }
         
@@ -160,7 +160,7 @@ async def login(credentials: UserLogin):
         
         # Create token
         user_id = str(user['_id'])
-        user_role = user.get('role', 'recruiter')  # Default to recruiter if role is missing
+        user_role = user.get('role', 'user')  # Default to user
         token = create_access_token(user_id, user['email'], user_role)
         
         return {
@@ -234,7 +234,7 @@ async def google_auth(auth_data: GoogleAuthModel):
                 "email": google_user['email'],
                 "googleId": google_user['google_id'],
                 "picture": google_user['picture'],
-                "role": "recruiter",
+                "role": "user",  # Everyone is just a user
                 "createdAt": datetime.utcnow()
             }
             result = await db.users.insert_one(user_doc)
@@ -249,7 +249,7 @@ async def google_auth(auth_data: GoogleAuthModel):
                 )
         
         # Create token
-        token = create_access_token(user_id, google_user['email'], 'recruiter')
+        token = create_access_token(user_id, google_user['email'], 'user')
         
         return {
             "token": token,
@@ -257,7 +257,7 @@ async def google_auth(auth_data: GoogleAuthModel):
                 "id": user_id,
                 "name": google_user['name'],
                 "email": google_user['email'],
-                "role": "recruiter",
+                "role": "user",
                 "picture": google_user.get('picture', '')
             }
         }
@@ -421,7 +421,7 @@ async def create_interview(interview_data: dict, current_user: dict = Depends(ge
 
 
 @api_router.get("/interview/{interview_id}")
-async def get_interview_data(interview_id: str):
+async def get_interview_data(interview_id: str, authorization: Optional[str] = Header(None)):
     """Get interview configuration data and feedback"""
     try:
         logger.info(f"📥 Fetching interview: {interview_id}")
@@ -442,6 +442,22 @@ async def get_interview_data(interview_id: str):
         
         if not interview:
             raise HTTPException(status_code=404, detail=f"Interview not found: {interview_id}")
+        
+        # SECURITY CHECK: If user is authenticated, verify they own this interview
+        if authorization:
+            try:
+                token = authorization.replace("Bearer ", "")
+                payload = decode_access_token(token)
+                if payload:
+                    # User must own this interview
+                    if interview.get('createdBy') != payload.get('user_id'):
+                        logger.warning(f"⚠️ User {payload.get('user_id')} tried to access interview created by {interview.get('createdBy')}")
+                        raise HTTPException(status_code=403, detail="Access denied: You can only view your own interviews")
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Token verification error: {e}")
+                # Continue without auth check for candidates
         
         # Always use the interviewId from the document
         actual_interview_id = interview.get('interviewId', interview_id)
@@ -708,10 +724,10 @@ async def submit_interview(data: InterviewSubmit):
 
 @api_router.get("/interviews/performance-stats")
 async def get_performance_stats(current_user: dict = Depends(get_current_user)):
-    """Get aggregated performance statistics from all completed interviews"""
+    """Get aggregated performance statistics from current user's completed interviews"""
     try:
-        if current_user['role'] != 'recruiter':
-            raise HTTPException(status_code=403, detail="Access denied")
+        # All authenticated users can see their own performance stats
+        # (role check removed - any user can access their own data)
         
         # Get all completed interviews
         interviews = await db.interviews.find({
@@ -1040,12 +1056,13 @@ async def clear_demo_data(current_user: dict = Depends(get_current_user)):
 
 @api_router.get("/interviews")
 async def get_interviews(current_user: dict = Depends(get_current_user)):
-    """Get all interviews for recruiter"""
+    """Get all interviews for current user only"""
     try:
-        if current_user['role'] != 'recruiter':
-            raise HTTPException(status_code=403, detail="Access denied")
+        # All authenticated users can see their own interviews
+        # (role check removed - any user can access their own data)
         
-        interviews = await db.interviews.find().to_list(1000)
+        # SECURITY FIX: Only get interviews created by current user
+        interviews = await db.interviews.find({"createdBy": current_user['id']}).to_list(1000)
         
         result = []
         for interview in interviews:

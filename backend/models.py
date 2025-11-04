@@ -7,7 +7,7 @@ class UserCreate(BaseModel):
     name: str
     email: EmailStr
     password: str
-    role: str = 'candidate'  # 'recruiter' or 'candidate'
+    role: str = 'user'  # Everyone is a user (for mock interview practice)
 
 class UserLogin(BaseModel):
     email: EmailStr
