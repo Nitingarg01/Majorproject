@@ -97,3 +97,6 @@ uvicorn==0.25.0
 watchfiles==1.1.1
 aiohttp==3.11.11
 aiofiles==25.1.0
+
+# Brevo (formerly Sendinblue) - Email service (optional, works with any email)
+sib-api-v3-sdk==7.6.0
