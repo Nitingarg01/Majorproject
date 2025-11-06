@@ -854,8 +854,7 @@ async def get_performance_stats(current_user: dict = Depends(get_current_user)):
 async def create_demo_data(current_user: dict = Depends(get_current_user)):
     """Create sample interview data for testing feedback and performance stats"""
     try:
-        if current_user['role'] != 'recruiter':
-            raise HTTPException(status_code=403, detail="Access denied")
+        # All authenticated users can create demo data for testing
         
         from datetime import timedelta
         import uuid
@@ -1028,16 +1027,14 @@ async def create_demo_data(current_user: dict = Depends(get_current_user)):
 
 @api_router.delete("/interviews/clear-demo-data")
 async def clear_demo_data(current_user: dict = Depends(get_current_user)):
-    """Clear all demo/test interview data"""
+    """Clear all demo/test interview data for current user only"""
     try:
-        if current_user['role'] != 'recruiter':
-            raise HTTPException(status_code=403, detail="Access denied")
+        # All authenticated users can clear their own data
+        # Only delete interviews created by current user
+        interviews_result = await db.interviews.delete_many({"createdBy": current_user['id']})
         
-        # Delete all interviews
-        interviews_result = await db.interviews.delete_many({})
-        
-        # Delete all campaigns if they exist
-        campaigns_result = await db.campaigns.delete_many({})
+        # Delete campaigns created by current user if they exist
+        campaigns_result = await db.campaigns.delete_many({"createdBy": current_user['id']})
         
         logger.info(f"Cleared {interviews_result.deleted_count} interviews and {campaigns_result.deleted_count} campaigns for user {current_user['id']}")
         
@@ -1092,11 +1089,9 @@ async def get_interviews(current_user: dict = Depends(get_current_user)):
 
 @api_router.get("/campaigns")
 async def get_campaigns(current_user: dict = Depends(get_current_user)):
-    """Get all campaigns for recruiter"""
+    """Get all campaigns for current user"""
     try:
-        if current_user['role'] != 'recruiter':
-            raise HTTPException(status_code=403, detail="Access denied")
-        
+        # All authenticated users can see their own campaigns
         campaigns = await db.campaigns.find({"recruiterId": current_user['id']}).to_list(1000)
         
         result = []
@@ -1125,8 +1120,7 @@ async def create_campaign(campaign_data: CampaignCreate, current_user: dict = De
     """Create new campaign"""
     try:
         logger.info(f"Creating campaign for user: {current_user}")
-        if current_user['role'] != 'recruiter':
-            raise HTTPException(status_code=403, detail="Access denied")
+        # All authenticated users can create campaigns
         
         campaign_doc = {
             "recruiterId": current_user['id'],
